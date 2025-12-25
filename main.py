@@ -1,9 +1,11 @@
 import ctypes
-ctypes.windll.shcore.SetProcessDpiAwareness(2)  # ⭐ DPI FIX
+ctypes.windll.shcore.SetProcessDpiAwareness(2)
 
 import tkinter as tk
-from PIL import ImageGrab
-import pytesseract
+
+from fix_text import fix_c_ocr
+from reader import readImage
+import os, sys
 
 class ScreenCapture:
     def __init__(self):
@@ -27,11 +29,10 @@ class ScreenCapture:
     def on_button_press(self, event):
         self.start_x = event.x
         self.start_y = event.y
-
         self.rect = self.canvas.create_rectangle(
             self.start_x, self.start_y,
             self.start_x, self.start_y,
-            outline='red', width=2
+            outline="red", width=2
         )
 
     def on_move(self, event):
@@ -42,33 +43,33 @@ class ScreenCapture:
         )
 
     def on_button_release(self, event):
-        x1 = min(self.start_x, event.x)
-        y1 = min(self.start_y, event.y)
-        x2 = max(self.start_x, event.x)
-        y2 = max(self.start_y, event.y)
+        x1, y1 = min(self.start_x, event.x), min(self.start_y, event.y)
+        x2, y2 = max(self.start_x, event.x), max(self.start_y, event.y)
 
-        # Convert to screen coordinates
-        root_x = self.root.winfo_rootx()
-        root_y = self.root.winfo_rooty()
+        root_x, root_y = self.root.winfo_rootx(), self.root.winfo_rooty()
+        bbox = (x1 + root_x, y1 + root_y, x2 + root_x, y2 + root_y)
 
-        bbox = (
-            x1 + root_x,
-            y1 + root_y,
-            x2 + root_x,
-            y2 + root_y
-        )
-
-        # Hide overlay before capture
         self.root.withdraw()
         self.root.update()
+        
+        # ---------- Code-Fixes ----------
+        text = readImage(bbox)
+        text = fix_c_ocr(text)
+        
+        # export result
+        i = len(os.listdir('./c_files'))
 
-        img = ImageGrab.grab(bbox=bbox)
-        img.save("screenshot.png")
+        
+        with open(f"./c_files/c_file_{i}.c", "w", encoding="utf-8") as f:
+            f.write(text)
 
-        # text = pytesseract.image_to_string(img)
-        # print("OCR Result:\n", text)
+        with open(f"./main.c", "w", encoding="utf-8") as f:
+            f.write(text)
+        # print("OCR Result:\n")
+        # print(text)
 
         self.root.destroy()
+
 
 if __name__ == "__main__":
     ScreenCapture()
