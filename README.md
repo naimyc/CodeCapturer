@@ -29,7 +29,7 @@ It helps developers, students, and educators quickly extract code from images, P
 
 Clone the repository:
 
-git clone https://github.com/naimyc/CodeCapturer_HSBO.git
+git clone https://github.com/naimyc/CodeCapturer.git
 cd CodeCapturer_HSBO
 
 Install dependencies:
