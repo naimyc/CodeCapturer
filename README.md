@@ -1,6 +1,6 @@
-# 📸 CodeCapturer_HSBO
+# 📸 CodeCapturer
 
-CodeCapturer_HSBO is a simple and efficient tool that captures code directly from your screen using screenshots and converts it into editable text.
+CodeCapturer is a simple and efficient tool that captures code directly from your screen using screenshots and converts it into editable text.
 
 It helps developers, students, and educators quickly extract code from images, PDFs, slides, or videos without manually retyping everything.
 
