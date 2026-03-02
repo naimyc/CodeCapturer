@@ -34,7 +34,9 @@ def fix_c_ocr(text: str) -> str:
             "S&arrayO": "&array0",
             "arrayO": "array0",
             "arrayd": "array0",
-            "22[": "z2["
+            "array11": "array1",
+            "_array": "array",
+            "22": "z2"
     }
 
     for k, v in fixes.items():

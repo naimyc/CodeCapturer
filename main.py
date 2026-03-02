@@ -41,6 +41,10 @@ class ScreenCapture:
             self.start_x, self.start_y,
             event.x, event.y
         )
+    
+    def shortcut(self, event):
+        # TODO 
+        pass
 
     def on_button_release(self, event):
         x1, y1 = min(self.start_x, event.x), min(self.start_y, event.y)
@@ -65,8 +69,6 @@ class ScreenCapture:
 
         with open(f"./main.c", "w", encoding="utf-8") as f:
             f.write(text)
-        # print("OCR Result:\n")
-        # print(text)
 
         self.root.destroy()
 
