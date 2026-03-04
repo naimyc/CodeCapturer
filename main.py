@@ -3,8 +3,8 @@ ctypes.windll.shcore.SetProcessDpiAwareness(2)
 
 import tkinter as tk
 
-from fix_text import fix_c_ocr
-from reader import readImage
+from src.fix_text import fix_c_ocr
+from src.reader import readImage
 import os, sys
 
 class ScreenCapture:
@@ -61,7 +61,7 @@ class ScreenCapture:
         text = fix_c_ocr(text)
         
         # export result
-        i = len(os.listdir('./c_files'))
+        i = len(os.listdir('./c_files', ))
 
         
         with open(f"./c_files/c_file_{i}.c", "w", encoding="utf-8") as f:

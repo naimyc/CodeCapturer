@@ -1,4 +1,5 @@
 from PIL import ImageGrab, ImageOps, Image
+import os
 import pytesseract
 from time import sleep
 
@@ -6,7 +7,10 @@ from time import sleep
 def readImage(bbox):
     # ---------- Screenshot ----------
         img = ImageGrab.grab(bbox=bbox)
+        i = len(os.listdir('./c_images'))
         img.save("screenshot.png")
+        img.save(f"./c_images/screenshot_{i}.png")
+        
         
 
         # Upscale (sehr wichtig)
