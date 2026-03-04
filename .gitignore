@@ -1,5 +1,4 @@
 .venv/
-c_files/
 __pycache__/
 
 # Ignore main.c file
