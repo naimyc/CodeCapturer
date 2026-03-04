@@ -28,18 +28,19 @@ It helps developers, students, and educators quickly extract code from images, P
 ## 📦 Installation
 
 Clone the repository:
-
+```
 git clone https://github.com/naimyc/CodeCapturer.git
-cd CodeCapturer_HSBO
+cd CodeCapturer
+```
 
 Install dependencies:
-
+```
 pip install -r requirements.txt
-
+```
 Run the application:
-
+```
 python main.py
-
+```
 ---
 
 ## 🧰 Tech Stack
