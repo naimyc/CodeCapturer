@@ -4,15 +4,19 @@ import pytesseract
 from time import sleep
 
 
-def readImage(bbox):
-    # ---------- Screenshot ----------
-        img = ImageGrab.grab(bbox=bbox)
-        i = len(os.listdir('./c_images'))
-        img.save("screenshot.png")
-        img.save(f"./c_images/screenshot_{i}.png")
-        
-        
+def readTextFromImage(img):
+    text = readImage(img)
+    return text
 
+def readImage(img):
+    # ---------- Screenshot ----------
+        # img = ImageGrab.grab(bbox=bbox)
+        # i = len(os.listdir('./c_images'))
+        # img.save("screenshot.png")
+        # img.save(f"./c_images/screenshot_{i}.png")
+        
+        
+        img = ImageOps.grayscale(img)
         # Upscale (sehr wichtig)
         img = img.resize((img.width * 2, img.height * 2), Image.LANCZOS)
 
@@ -40,4 +44,5 @@ def readImage(bbox):
             lang="eng",
             config=config
         )
+        print(text)
         return text

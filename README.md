@@ -48,6 +48,7 @@ python main.py
 - Python
 - OCR Engine (e.g., Tesseract)
 - Screenshot capture library
+- DearPy Gui
 
 ---
 
