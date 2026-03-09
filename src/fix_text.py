@@ -36,7 +36,29 @@ def fix_c_ocr(text: str) -> str:
             "arrayd": "array0",
             "array11": "array1",
             "_array": "array",
-            "22": "z2"
+            "22": "z2",
+            "]_": "]",
+            "&1" : "&i",
+            "_2": "2",
+            "2z2" : "z2",
+            "+l": "+1",
+            "1i": "i",
+            "si" : "%i",
+            "it++": "i++",
+            "_&": "&",
+            " _": "",
+            "_ ": "",
+            " _ " :"",
+            "Divi%ion": "Division",
+            "_(*": "(*",
+            "argu": "argv",
+            "argce": "argc",
+            ")<": "){",
+            "<&": "{&",
+            "_a": "a",
+            "atb": "a+b",
+            "inmta": "int a",
+            "        I": ""
     }
 
     for k, v in fixes.items():
@@ -48,6 +70,8 @@ def fix_c_ocr(text: str) -> str:
     # ---------- fehlende Leerzeichen ----------
     text = re.sub(r"\bint([a-zA-Z_])", r"int \1", text)
     text = re.sub(r"\breturn\(", "return (", text)
+    text = re.sub(r",_\s*\*", r", *", text)
+
 
     # ---------- Funktionsdeklarationen ----------
     text = re.sub(r"\bintadd\b", "int add", text)
@@ -56,6 +80,11 @@ def fix_c_ocr(text: str) -> str:
     text = re.sub(r"\bvoidadd\b", "void add", text)
     text = re.sub(r"\bintmain\b", "int main", text)
     text = re.sub(r"\bfloatsub\b", "float sub", text)
+    
+    text = re.sub(r"\b(int|float|double|char)\s+_\s*\*\s*(\w+)", r"\1 *\2", text)
+    text = re.sub(r"\b(int|float|double|char)\s+_\s*\*\s*(\w+)", r"\1 *\2", text)
+    text = re.sub(r"([a-zA-Z_]\w*)\{(\d+)\]", r"\1[\2]", text)
+
     
     # Fix misplaced brackets and OCR errors
     # Replace things like "9]" with "[9]"

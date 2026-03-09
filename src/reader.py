@@ -1,6 +1,10 @@
+import shutil
+
 from PIL import ImageGrab, ImageOps, Image
-import os
 import pytesseract
+# link tesseract to the executable
+pytesseract.pytesseract.tesseract_cmd = shutil.which("tesseract")  # or r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+
 from time import sleep
 
 
