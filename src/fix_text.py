@@ -58,7 +58,8 @@ def fix_c_ocr(text: str) -> str:
             "_a": "a",
             "atb": "a+b",
             "inmta": "int a",
-            "        I": ""
+            "        I": "",
+            "tl": "+1"
     }
 
     for k, v in fixes.items():
