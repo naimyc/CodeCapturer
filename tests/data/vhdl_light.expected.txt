@@ -1,0 +1,32 @@
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+
+entity counter is
+    generic (
+        WIDTH : integer := 8
+    );
+    port (
+        clk     : in  std_logic;
+        reset_n : in  std_logic;
+        enable  : in  std_logic;
+        q       : out std_logic_vector(WIDTH-1 downto 0)
+    );
+end entity counter;
+
+architecture rtl of counter is
+    signal cnt : unsigned(WIDTH-1 downto 0) := (others => '0');
+begin
+    process (clk, reset_n)
+    begin
+        if reset_n = '0' then
+            cnt <= (others => '0');
+        elsif rising_edge(clk) then
+            if enable = '1' then
+                cnt <= cnt + 1;
+            end if;
+        end if;
+    end process;
+
+    q <= std_logic_vector(cnt);
+end architecture rtl;

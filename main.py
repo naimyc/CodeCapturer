@@ -1,18 +1,30 @@
-import ctypes
-ctypes.windll.shcore.SetProcessDpiAwareness(2)
+"""Drag a box over code on screen; the selection is OCR'd and written to disk."""
 
+import argparse
+import ctypes
+import os
 import tkinter as tk
 
-from src.fix_text import fix_c_ocr
+from src import languages
+from src.fix_text import detect_language, fix_code
 from src.reader import readImage
-import os, sys
+
+ctypes.windll.shcore.SetProcessDpiAwareness(2)
+
+OUTPUT_DIR = "c_files"
+
 
 class ScreenCapture:
-    def __init__(self):
+    def __init__(self, lang="auto", reindent=True):
+        self.lang = lang
+        self.reindent = reindent
+        self.text = None
+        self.path = None
+
         self.root = tk.Tk()
         self.root.attributes("-fullscreen", True)
         self.root.attributes("-alpha", 0.3)
-        self.root.configure(background='gray')
+        self.root.configure(background="gray")
 
         self.start_x = self.start_y = 0
         self.rect = None
@@ -23,6 +35,7 @@ class ScreenCapture:
         self.canvas.bind("<ButtonPress-1>", self.on_button_press)
         self.canvas.bind("<B1-Motion>", self.on_move)
         self.canvas.bind("<ButtonRelease-1>", self.on_button_release)
+        self.root.bind("<Escape>", lambda event: self.root.destroy())
 
         self.root.mainloop()
 
@@ -41,10 +54,6 @@ class ScreenCapture:
             self.start_x, self.start_y,
             event.x, event.y
         )
-    
-    def shortcut(self, event):
-        # TODO 
-        pass
 
     def on_button_release(self, event):
         x1, y1 = min(self.start_x, event.x), min(self.start_y, event.y)
@@ -53,25 +62,46 @@ class ScreenCapture:
         root_x, root_y = self.root.winfo_rootx(), self.root.winfo_rooty()
         bbox = (x1 + root_x, y1 + root_y, x2 + root_x, y2 + root_y)
 
+        # hide the overlay before grabbing, or we capture our own grey tint
         self.root.withdraw()
         self.root.update()
-        
-        # ---------- Code-Fixes ----------
-        text = readImage(bbox)
-        text = fix_c_ocr(text)
-        
-        # export result
-        i = len(os.listdir('./c_files', ))
 
-        
-        with open(f"./c_files/c_file_{i}.c", "w", encoding="utf-8") as f:
-            f.write(text)
+        if x2 - x1 < 5 or y2 - y1 < 5:
+            self.root.destroy()
+            return
 
-        with open(f"./main.c", "w", encoding="utf-8") as f:
-            f.write(text)
+        # ---------- OCR ----------
+        raw = readImage(bbox)
+        self.text = fix_code(raw, lang=self.lang, reindent=self.reindent)
+
+        key = self.lang if self.lang != "auto" else detect_language(raw)
+        self.path = self.write(self.text, languages.get(key).extension)
+        print(self.text)
+        print(f"\n-> {self.path}")
 
         self.root.destroy()
 
+    @staticmethod
+    def write(text, extension):
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
+        index = len(os.listdir(OUTPUT_DIR))
+        path = os.path.join(OUTPUT_DIR, f"capture_{index}{extension}")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        return path
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("-l", "--lang", default="auto",
+                        choices=["auto", *languages.LANGUAGES],
+                        help="source language of the captured code")
+    parser.add_argument("--no-reindent", action="store_true",
+                        help="keep the indentation as read instead of rebuilding it")
+    args = parser.parse_args()
+
+    ScreenCapture(lang=args.lang, reindent=not args.no_reindent)
+
 
 if __name__ == "__main__":
-    ScreenCapture()
+    main()

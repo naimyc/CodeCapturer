@@ -1,0 +1,28 @@
+/* Reservierung Speicher KnotenHead und KnotenTail auf Heap */
+void DefineListenStart() {
+        ZeigerHead  =  (struct knoten *) malloc(sizeof *ZeigerHead);
+        ZeigerTail  =  (struct knoten *) malloc(sizeof *ZeigerTail);
+
+ return;
+}
+
+/* Freigabe Speicher KnotenHead und KnotenTail auf Heap */
+void FreeHeadTail() {
+
+
+        free(*ZeigerHead);
+
+ return;
+}
+
+   /* Verbinde Head mit Tail und Tail mit sich selber
+      und weise Anfangswerte zu */
+void InitialConnectHeadTail() {
+
+    ZeigerHead->Next = ZeigerTail;
+    ZeigerTail->Next = ZeigerTail;
+
+    ZeigerHead->ADCData = -1;
+    ZeigerTail->ADCData = -2;
+
+ return;

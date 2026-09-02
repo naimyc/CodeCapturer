@@ -1,0 +1,41 @@
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+
+entity fsm is
+    port (
+        clk  : in  std_logic;
+        d1   : in  std_logic;
+        l1   : in  std_logic;
+        q1   : out std_logic
+    );
+end entity fsm;
+
+architecture rtl of fsm is
+    type state_t is (s0, s1, s2, s3);
+    signal state : state_t := s0;
+    signal cnt1  : integer := 1;
+    signal cnt2  : integer := 11;
+    signal val1  : integer := 101;
+begin
+    process (clk)
+    begin
+        if rising_edge(clk) then
+            case state is
+                when s0 =>
+                    cnt1 <= 1;
+                    state <= s1;
+                when s1 =>
+                    cnt1 <= cnt1 + 1;
+                    val1 <= cnt1 + cnt2;
+                    state <= s2;
+                when s2 =>
+                    cnt2 <= 11 + val1;
+                    state <= s3;
+                when others =>
+                    state <= s0;
+            end case;
+        end if;
+    end process;
+
+    q1 <= d1 and l1;
+end architecture rtl;

@@ -1,8 +1,14 @@
 GUI
 - Refactor into multiple files (view.py, etc.)
-- Cropping Mode
-- Improve text output
-- Improve UX 
+- Cropping Mode: drag a rectangle on the image (only the left-edge trim exists)
+- Improve UX
 
 OCR
-- Still needs some improvemets and adjustments
+- done: dropped the char whitelist that was deleting every space
+- done: extreme-channel grayscale so syntax colours survive on both themes
+- done: scale from the measured line height instead of a fixed 2x
+- done: blank lines and column alignment rebuilt from word boxes
+- done: vocabulary-driven token repair (replaces the hardcoded fix list)
+- done: VHDL support + automatic language detection
+- open: recognise the language per-region when a screenshot mixes prose and code
+- open: more languages (Verilog, Python) - see "Adding a language" in the README
