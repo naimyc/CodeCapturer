@@ -9,6 +9,10 @@ OCR
 - done: scale from the measured line height instead of a fixed 2x
 - done: blank lines and column alignment rebuilt from word boxes
 - done: vocabulary-driven token repair (replaces the hardcoded fix list)
-- done: VHDL support + automatic language detection
+- done: VHDL and Python support + automatic language detection
+- done: strip the editor line-number gutter
+- done: restore `&` misread as `S`/`G` and fused onto its operand
+- open: repairs stop at string literals, so a mangled format
+        string like "%sd" has to be fixed by hand
 - open: recognise the language per-region when a screenshot mixes prose and code
-- open: more languages (Verilog, Python) - see "Adding a language" in the README
+- open: more languages (Verilog, C++) - see "Adding a language" in the README

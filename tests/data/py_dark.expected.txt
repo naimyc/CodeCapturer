@@ -1,0 +1,38 @@
+import os
+import sys
+from collections import Counter
+
+
+class WordCounter:
+    """Count words in a file."""
+
+    def __init__(self, path, limit=10):
+        self.path = path
+        self.limit = limit
+        self.counts = Counter()
+
+    def read(self):
+        with open(self.path, encoding="utf-8") as handle:
+            for line in handle:
+                for word in line.split():
+                    self.counts[word.lower()] += 1
+        return self.counts
+
+    def top(self):
+        items = sorted(self.counts.items(), key=lambda kv: -kv[1])
+        return items[:self.limit]
+
+
+def main(argv):
+    if len(argv) < 2:
+        print("usage: wc.py FILE")
+        return 1
+    counter = WordCounter(argv[1], limit=5)
+    counter.read()
+    for word, count in counter.top():
+        print(f"{word:20s} {count:4d}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

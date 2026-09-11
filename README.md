@@ -11,7 +11,8 @@ It helps developers, students, and educators quickly extract code from images, P
 - 📷 Capture code using screenshots
 - 🔍 Extract text from images using OCR
 - 💻 Convert extracted text into editable code
-- 🧩 **C and VHDL** support, with automatic language detection
+- 🧩 **C, VHDL and Python** support, with automatic language detection
+- 🔢 Strips the editor's line-number gutter automatically
 - 🎨 Handles syntax-highlighted code on light *and* dark themes
 - 📐 Keeps blank lines and column alignment; re-indents to canonical style
 - 🔍 The two panes tile across the window, and the type and controls scale up
@@ -38,14 +39,15 @@ one of them:
 | Margin trim + adaptive scaling | Tesseract's LSTM wants roughly 18px of ink per line. A fixed scale factor over- or under-shoots depending on the display, so the factor is derived from the measured line height. |
 | Word-box layout rebuild | `image_to_string` discards vertical gaps. Rebuilding from word coordinates keeps blank lines, and snapping the columns to the fitted monospace advance keeps alignment. |
 | Vocabulary-driven repair | Underscores are thin and often lost (`std logic vector`). Repairs must be justified by a language keyword or by a token that already appears in the same snippet, so they can't fire on unrelated code. |
-| Per-language indenting | C indents on braces; VHDL indents on `entity` / `begin` / `if` / `end`. |
+| Line-number gutter removal | Screenshots are usually taken with line numbers showing, and OCR reads that column as code. A gutter numbers *every* line and counts up one at a time, which source never does. |
+| Per-language indenting | C indents on braces; VHDL on `entity`/`begin`/`if`/`end`. Python's indentation **is** its syntax, so it is preserved as read and never rebuilt. |
 
 **No `tessedit_char_whitelist`.** In LSTM mode a whitelist that omits the space
 character makes Tesseract drop *every* space, which is what previously produced
 output like `intmain(){`.
 
-Accuracy on the bundled samples (`tests/data`, `c_images`) is ~99.9% character
-similarity, up from ~71% before this pipeline.
+Accuracy on the bundled samples (`tests/data`, `c_images`) averages ~99%
+character similarity, up from ~71% before this pipeline.
 
 ---
 
@@ -72,11 +74,11 @@ python app.py screenshot.png   # open straight onto an image
 Or grab a region of the screen directly:
 ```
 python main.py                 # detect the language automatically
-python main.py --lang vhdl     # force VHDL
+python main.py --lang vhdl     # force VHDL (or --lang c / --lang python)
 python main.py --no-reindent   # keep the indentation as read
 ```
 Captures are written to `c_files/` with the extension for the detected
-language (`.c` or `.vhd`).
+language (`.c`, `.vhd` or `.py`).
 
 Run the tests:
 ```
@@ -119,6 +121,8 @@ in `LANGUAGES` — the OCR and repair pipeline picks it up from there.
 - Handwritten code is not supported
 - A screenshot that clips a sliver of the previous column leaves junk at the
   start of a line; use the **Trim left edge** slider to cut it off before OCR
+- Repairs never reach inside a string or comment, since those are prose rather
+  than code: a format string read as `"%sd"` stays as it was read
 - Tesseract cannot reliably tell `1` from `l`/`i` in a code font, so a trailing
   digit is recovered from the snippet instead: from a numbered sibling (`cnt2`
   proves `cntl` is `cnt1`) or from the same stem coming back two different ways
@@ -131,7 +135,7 @@ in `LANGUAGES` — the OCR and repair pipeline picks it up from there.
 ## 📌 Future Improvements
 
 - Syntax highlighting
-- More languages (Verilog, Python)
+- More languages (Verilog, C++)
 - Direct IDE integration
 - Improved GUI
 

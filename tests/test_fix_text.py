@@ -481,5 +481,226 @@ z <= Sdata;
         self.assertIn("Sdata", out)
 
 
+
+
+class TestLineNumberGutter(unittest.TestCase):
+    """Screenshots are usually taken with line numbers showing."""
+
+    GUTTERED = """1  int main() {
+2      int i;
+3
+4      for (i = 0; i < 10; i++) {
+5          sum += i;
+6      }
+7      return 0;
+8  }
+"""
+
+    def test_gutter_is_removed(self):
+        out = fix_code(self.GUTTERED, lang="c")
+        self.assertNotIn("1  int main", out)
+        self.assertTrue(out.startswith("int main() {"), out)
+        for n in ("2", "4", "5", "7"):
+            self.assertNotIn(chr(10) + n + " ", out)
+
+    def test_code_survives_the_gutter(self):
+        out = fix_code(self.GUTTERED, lang="c")
+        for fragment in ("int i;", "sum += i;", "return 0;"):
+            self.assertIn(fragment, out)
+
+    def test_gutter_removal_dedents(self):
+        """Blanking the numbers must not leave the whole file indented."""
+        src = """ 1 def f(a):
+ 2     if a:
+ 3         return 1
+ 4     return 0
+ 5
+ 6
+ 7 x = f(2)
+"""
+        out = fix_code(src, lang="python")
+        self.assertTrue(out.startswith("def f(a):"), repr(out))
+        self.assertIn(chr(10) + "    if a:", out)
+        self.assertIn(chr(10) + "        return 1", out)
+        self.assertIn(chr(10) + "x = f(2)", out)
+
+    def test_stray_glyph_on_a_number_is_still_removed(self):
+        src = """1  x = 1
+2  y = 2
+v3 z = 3
+4  w = 4
+5  v = 5
+6  u = 6
+"""
+        out = fix_code(src, lang="python")
+        self.assertIn("z = 3", out)
+        self.assertNotIn("v3", out)
+
+    def test_short_snippet_keeps_its_numbers(self):
+        out = fix_code("1 x = 1" + chr(10) + "2 y = 2" + chr(10), lang="python")
+        self.assertIn("1 x = 1", out)
+
+    def test_data_table_is_not_mistaken_for_a_gutter(self):
+        """Numbers here are code; they do not number every line consecutively."""
+        src = """values = [
+0, 10,
+5, 20,
+9, 30,
+]
+total = 0
+"""
+        out = fix_code(src, lang="python")
+        self.assertIn("0, 10,", out)
+        self.assertIn("9, 30,", out)
+
+
+class TestPython(unittest.TestCase):
+    def test_detects_python(self):
+        src = """import os
+
+
+def main(argv):
+    if not argv:
+        return 1
+    print(os.getcwd())
+    return 0
+"""
+        self.assertEqual(detect_language(src), "python")
+
+    def test_c_is_not_mistaken_for_python(self):
+        src = """#include <stdio.h>
+int main(void) {
+    int i = 0;
+    for (i = 0; i < 3; i++) {
+        printf("%d", i);
+    }
+    return 0;
+}
+"""
+        self.assertEqual(detect_language(src), "c")
+
+    def test_indentation_is_never_invented(self):
+        """Indentation is the syntax; it must come back exactly as read."""
+        src = """def f(a):
+    if a:
+        return 1
+    return 0
+"""
+        self.assertEqual(fix_code(src, lang="python"), src)
+
+    def test_inconsistent_indent_is_snapped_together(self):
+        """OCR jitter of a space inside one block is tidied, not restructured."""
+        src = "def f():" + chr(10) + "    a = 1" + chr(10) + "     b = 2" + chr(10)
+        out = fix_code(src, lang="python")
+        widths = [len(l) - len(l.lstrip(" ")) for l in out.split(chr(10)) if l.strip()]
+        self.assertEqual(widths[1], widths[2])
+
+    def test_decorator_at_sign_survives(self):
+        src = """class A:
+    @property
+    def x(self):
+        return 1
+"""
+        out = fix_code(src, lang="python")
+        self.assertIn("@property", out)
+
+    def test_bare_at_sign_is_still_a_misread_zero(self):
+        out = fix_code("def f():" + chr(10) + "    return @" + chr(10), lang="python")
+        self.assertIn("return 0", out)
+
+    def test_docstring_contents_are_left_alone(self):
+        src = 'def f():' + chr(10) + '    """Count  the   words."""' + chr(10)
+        out = fix_code(src, lang="python")
+        self.assertIn('"""Count  the   words."""', out)
+
+    def test_hash_comment_is_masked(self):
+        out = fix_code("# raw  note  here" + chr(10) + "x = 1" + chr(10), lang="python")
+        self.assertIn("# raw  note  here", out)
+
+    def test_no_semicolons_are_invented(self):
+        """The `)5` -> `);` repair is for languages that end statements that way."""
+        out = fix_code("x = f()5" + chr(10), lang="python")
+        self.assertNotIn(");", out)
+
+    def test_dunder_is_rejoined(self):
+        out = fix_code("class A:" + chr(10) + "    def __ init__(self):" + chr(10)
+                       + "        pass" + chr(10), lang="python")
+        self.assertIn("def __init__(self):", out)
+
+    def test_near_miss_snaps_to_a_keyword(self):
+        out = fix_code("if _name__ == 'x':" + chr(10) + "    pass" + chr(10),
+                       lang="python")
+        self.assertIn("__name__", out)
+
+    def test_ordinary_identifier_is_not_snapped(self):
+        src = """counter = 0
+counter = counter + 1
+printer = 0
+"""
+        out = fix_code(src, lang="python")
+        self.assertIn("printer", out)
+
+    def test_python_file_extension(self):
+        self.assertEqual(languages.get("python").extension, ".py")
+
+
+class TestGluedKeyword(unittest.TestCase):
+    def test_keyword_glued_to_a_name(self):
+        src = """int mul(int *z) {
+    int i;
+    inti;
+    return i;
+}
+"""
+        out = fix_code(src, lang="c")
+        self.assertIn("int i;", out)
+        self.assertNotIn("inti;", out)
+
+    def test_word_starting_with_a_keyword_is_safe(self):
+        out = fix_code("int intern;" + chr(10) + "intern = 1;" + chr(10), lang="c")
+        self.assertIn("intern", out)
+        self.assertNotIn("int ern", out)
+
+    def test_common_name_is_not_split(self):
+        src = """char chars;
+chars = 1;
+chars = 2;
+char s;
+"""
+        out = fix_code(src, lang="c")
+        self.assertIn("chars", out)
+
+
+class TestDoubledGlyphAndCase(unittest.TestCase):
+    def test_glyph_read_as_both_letter_and_digit(self):
+        src = """int array1[10];
+array1[i] = i;
+int arrayl1[10];
+"""
+        out = fix_code(src, lang="c")
+        self.assertNotIn("arrayl1", out)
+
+    def test_case_is_taken_from_the_established_spelling(self):
+        src = """int mul(int *z1) {
+    return z1[0] * z1[1] + Z1[3];
+}
+"""
+        out = fix_code(src, lang="c")
+        self.assertNotIn("Z1", out)
+        self.assertIn("z1[3]", out)
+
+    def test_two_established_spellings_are_both_kept(self):
+        src = """int Data;
+int data;
+Data = 1;
+Data = 2;
+data = 3;
+data = 4;
+"""
+        out = fix_code(src, lang="c")
+        self.assertIn("Data", out)
+        self.assertIn("data", out)
+
+
 if __name__ == "__main__":
     unittest.main()

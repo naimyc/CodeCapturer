@@ -81,6 +81,38 @@ VHDL_LOGIC_CONFUSIONS = {
 }
 
 
+PYTHON_KEYWORDS = {
+    # reserved words
+    "and", "as", "assert", "async", "await", "break", "class", "continue",
+    "def", "del", "elif", "else", "except", "finally", "for", "from", "global",
+    "if", "import", "in", "is", "lambda", "nonlocal", "not", "or", "pass",
+    "raise", "return", "try", "while", "with", "yield", "match", "case",
+    "None", "True", "False",
+    # builtins and names common enough to be worth trusting for token repair
+    "print", "len", "range", "str", "int", "float", "bool", "bytes", "list",
+    "dict", "set", "tuple", "frozenset", "open", "enumerate", "zip", "map",
+    "filter", "sum", "min", "max", "abs", "round", "sorted", "reversed",
+    "type", "isinstance", "issubclass", "getattr", "setattr", "hasattr",
+    "repr", "format", "input", "iter", "next", "any", "all", "super",
+    "staticmethod", "classmethod", "property", "self", "cls",
+    "Exception", "ValueError", "TypeError", "KeyError", "IndexError",
+    "RuntimeError", "NotImplementedError", "StopIteration",
+    "__init__", "__name__", "__main__", "__str__", "__repr__", "__len__",
+    "os", "sys", "re", "json", "math", "time", "random", "collections",
+    "itertools", "pathlib", "typing", "numpy", "np", "pandas", "pd",
+    "append", "extend", "insert", "remove", "pop", "keys", "values", "items",
+    "split", "join", "strip", "replace", "startswith", "endswith", "lower",
+    "upper", "sort", "index", "count", "update", "get",
+}
+
+#: Words that keep their space before `(`; elsewhere `(` opens a call.
+PYTHON_SPACED = {
+    "if", "elif", "while", "for", "return", "in", "not", "and", "or", "is",
+    "assert", "del", "lambda", "yield", "else", "with", "as", "from", "import",
+    "raise", "await", "print_function", "pass", "class",
+}
+
+
 # --------------------------------------------------------------------------- #
 #  Indenters
 # --------------------------------------------------------------------------- #
@@ -203,13 +235,50 @@ def indent_vhdl(lines, unit="    "):
     return out
 
 
+def indent_python(lines, unit="    "):
+    """Tidy Python indentation without inventing any.
+
+    Indentation *is* the syntax here, so nothing may be rebuilt from keywords
+    the way it is for C and VHDL. All this does is clean up OCR jitter: widths
+    that sit within a space of each other were one level in the original, so
+    they are snapped back to a single common width.
+    """
+    widths = sorted({len(line) - len(line.lstrip(" "))
+                     for line in lines if line.strip()})
+    if not widths:
+        return list(lines)
+
+    # group widths that differ by at most one space, and settle on the median
+    canonical, group = {}, [widths[0]]
+    for width in widths[1:]:
+        if width - group[-1] <= 1:
+            group.append(width)
+        else:
+            for member in group:
+                canonical[member] = group[len(group) // 2]
+            group = [width]
+    for member in group:
+        canonical[member] = group[len(group) // 2]
+
+    out = []
+    for line in lines:
+        if not line.strip():
+            out.append("")
+            continue
+        width = len(line) - len(line.lstrip(" "))
+        out.append(" " * canonical.get(width, width) + line.strip())
+    return out
+
+
 # --------------------------------------------------------------------------- #
 #  Language records
 # --------------------------------------------------------------------------- #
 
 class Language:
     def __init__(self, key, label, extension, vocabulary,
-                 line_comment, block_comment, indenter, detect):
+                 line_comment, block_comment, indenter, detect,
+                 literals=None, uses_semicolons=True, at_sign_is_syntax=False,
+                 rebuilds_indent=True, spaced_before_paren=frozenset()):
         self.key = key
         self.label = label
         self.extension = extension
@@ -218,6 +287,16 @@ class Language:
         self.block_comment = block_comment
         self.indenter = indenter
         self._detect = detect
+        #: Extra literal patterns to mask, tried before the plain quoted forms.
+        self.literals = literals or ()
+        #: Whether `;` ends a statement, so a trailing `5` can be one misread.
+        self.uses_semicolons = uses_semicolons
+        #: Python spells decorators with `@`, so it is not a misread zero there.
+        self.at_sign_is_syntax = at_sign_is_syntax
+        #: False where indentation carries meaning and must be left as read.
+        self.rebuilds_indent = rebuilds_indent
+        #: Words that keep their space before `(` -- there it is syntax, not a call.
+        self.spaced_before_paren = {w.lower() for w in spaced_before_paren}
 
     def score(self, text):
         """How strongly `text` looks like this language (higher wins)."""
@@ -250,7 +329,11 @@ C = Language(
         (r";\s*$", 1),
         (r"\bmalloc\b|\bfree\b|\bsizeof\b", 3),
         (r"\breturn\b", 1),
+        (r"^\s*def\s+\w+\s*\(", -6),
+        (r"^\s*(import|from)\s+\w", -4),
     ),
+    spaced_before_paren={"if", "for", "while", "switch", "return",
+                         "sizeof", "do", "else"},
 )
 
 VHDL = Language(
@@ -276,9 +359,44 @@ VHDL = Language(
         (r"\bothers\s*=>", 3),
         (r"^\s*--", 2),
     ),
+    spaced_before_paren=VHDL_RESERVED,
 )
 
-LANGUAGES = {lang.key: lang for lang in (C, VHDL)}
+PYTHON = Language(
+    key="python",
+    label="Python",
+    extension=".py",
+    vocabulary=PYTHON_KEYWORDS,
+    line_comment="#",
+    block_comment=None,
+    indenter=indent_python,
+    # Docstrings are matched before the plain quoted forms, so a triple quote
+    # always wins over a single one. `.` spans newlines: the regex uses re.S.
+    literals=(r'""".*?(?:"""|$)', r"'''.*?(?:'''|$)"),
+    uses_semicolons=False,
+    at_sign_is_syntax=True,      # `@` is a decorator, never a misread zero
+    rebuilds_indent=False,       # indentation is the syntax; never invent it
+    detect=_pats(
+        (r"^\s*def\s+\w+\s*\(", 8),
+        (r"^\s*class\s+\w+", 7),
+        (r"^\s*(import|from)\s+\w", 6),
+        (r"\belif\b", 6),
+        (r"\bself\b", 5),
+        (r"__\w+__", 5),
+        (r"^\s*@\w+", 4),
+        (r"\b(None|True|False)\b", 4),
+        (r"\b(lambda|yield|except|finally|def)\b", 4),
+        (r":\s*$", 2),
+        (r"\bprint\s*\(", 2),
+        # braces and trailing semicolons say this is not Python
+        (r"[{}]", -2),
+        (r";\s*$", -3),
+        (r"^\s*#\s*include\b", -8),
+    ),
+    spaced_before_paren=PYTHON_SPACED,
+)
+
+LANGUAGES = {lang.key: lang for lang in (C, VHDL, PYTHON)}
 DEFAULT = C
 
 

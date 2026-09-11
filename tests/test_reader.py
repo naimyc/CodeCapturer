@@ -110,6 +110,45 @@ class TestOcrAccuracy(unittest.TestCase):
                         fixed.count(name), raw.count(name),
                         f"{name} got rarer after post-processing")
 
+    def test_python_is_read_and_detected(self):
+        for name in ("py_dark.png", "py_gutter.png"):
+            with self.subTest(image=name):
+                raw = readImage(os.path.join(DATA, name))
+                self.assertEqual(detect_language(raw), "python")
+
+    def test_python_indentation_comes_back_intact(self):
+        """Indentation is Python's syntax, so it must survive byte for byte."""
+        for name in ("py_dark", "py_gutter"):
+            with self.subTest(image=name):
+                got = fix_code(readImage(os.path.join(DATA, name + ".png")))
+                want = _read(os.path.join(DATA, name + ".expected.txt"))
+                ratio = difflib.SequenceMatcher(
+                    None, got.strip(), want.strip()).ratio()
+                self.assertGreaterEqual(ratio, 0.97, f"only {ratio:.1%}" + chr(10) + got)
+                for line in ("    def read(self):",
+                             "        with open(self.path, encoding=" + chr(34)
+                             + "utf-8" + chr(34) + ") as handle:",
+                             "                for word in line.split():"):
+                    self.assertIn(line, got)
+
+    def test_line_number_gutter_is_stripped_from_the_image(self):
+        got = fix_code(readImage(os.path.join(DATA, "py_gutter.png")))
+        self.assertTrue(got.startswith("import os"), got[:80])
+        # no line begins with one of the gutter numbers
+        for line in got.split(chr(10)):
+            self.assertFalse(line[:1].isdigit(), line)
+
+    def test_c_screenshot_with_gutter_and_address_of(self):
+        """The reported case: a numbered screenshot where `&` reads as `S`."""
+        path = os.path.join(IMAGES, "image.png")
+        if not os.path.exists(path):
+            self.skipTest("sample not present")
+        got = fix_code(readImage(path))
+        self.assertIn("&array1[0]", got)
+        self.assertNotIn("Sarray1", got)
+        self.assertIn("int array1[10];", got)
+        self.assertTrue(got.startswith("#include"), got[:60])
+
     def test_blank_lines_between_blocks_are_kept(self):
         text = readImage(os.path.join(DATA, "vhdl_dark.png"))
         self.assertIn("\n\n", text, "vertical gaps were lost")

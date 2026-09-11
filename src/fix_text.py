@@ -47,6 +47,65 @@ def normalize_unicode(text):
     return _DOUBLED_QUOTE_RE.sub("'", text)
 
 
+#: A line that begins with nothing but an integer -- a candidate gutter entry.
+_GUTTER_RE = re.compile(r"^[ \t]*(\d{1,5})(?=[ \t]|$)")
+
+#: Once a gutter is confirmed, tolerate one stray glyph stuck to the number.
+_GUTTER_LOOSE_RE = re.compile(r"^([ \t]*[^\s\d]?\d{1,5})(?=[ \t]|$)")
+
+
+def strip_line_numbers(text):
+    """Blank out an editor's line-number gutter, if the snippet clearly has one.
+
+    Screenshots are usually taken with line numbers showing, and OCR reads that
+    column as if it were code: the numbers land in the vocabulary, wreck the
+    indentation and split statements. Detection leans on the fact that a gutter
+    numbers *every* line and counts up one at a time, which ordinary source
+    never does -- a `0 => "00"` lookup table has no number on its blank lines
+    and does not span the whole snippet.
+
+    The digits are replaced by spaces rather than removed, so every column to
+    the right of the gutter stays where it was.
+    """
+    lines = text.split("\n")
+    found = []
+    for index, line in enumerate(lines):
+        match = _GUTTER_RE.match(line)
+        if match:
+            found.append((index, int(match.group(1)), match.end(1)))
+
+    populated = sum(1 for line in lines if line.strip())
+    if len(found) < 5 or not populated or len(found) < populated * 0.6:
+        return text
+
+    numbers = [n for _, n, _ in found]
+    rising = sum(1 for a, b in zip(numbers, numbers[1:]) if b > a)
+    if rising < (len(numbers) - 1) * 0.8:
+        return text
+    steps = sorted(b - a for a, b in zip(numbers, numbers[1:]))
+    if not steps or steps[len(steps) // 2] != 1:
+        return text
+    # a gutter counts the lines it sits next to; a data column would not
+    if not len(found) <= numbers[-1] - numbers[0] + 1 <= len(lines) * 1.5:
+        return text
+
+    # The gutter is confirmed, so now sweep it off *every* line -- including the
+    # ones where OCR glued a stray glyph onto the number and the strict pattern
+    # above did not match them.
+    out = [_GUTTER_LOOSE_RE.sub(lambda m: " " * len(m.group(1)), line, count=1)
+           for line in lines]
+    return _dedent(out)
+
+
+def _dedent(lines):
+    """Drop the indentation every line shares, left behind by the gutter."""
+    common = min((len(line) - len(line.lstrip(" "))
+                  for line in lines if line.strip()), default=0)
+    if not common:
+        return "\n".join(lines)
+    return "\n".join(line[common:] if line.strip() else "" for line in lines)
+
+
 # --------------------------------------------------------------------------- #
 #  2. Literal / comment masking
 # --------------------------------------------------------------------------- #
@@ -56,7 +115,7 @@ _PLACEHOLDER_RE = re.compile("\x00(\\d+)\x00")
 
 
 def _segment_re(lang):
-    parts = []
+    parts = list(lang.literals)          # e.g. Python docstrings, matched first
     if lang.block_comment:
         open_, close = (re.escape(p) for p in lang.block_comment)
         parts.append(f"{open_}.*?(?:{close}|$)")
@@ -133,11 +192,49 @@ def _vocabulary(masked, lang):
     return vocab, counts
 
 
+#: Junk that can precede a keyword at the start of a line. Deliberately narrow:
+#: `(`, `*`, `&`, `-` and `#` all begin legitimate lines of C.
+_LEADING_JUNK_RUN = re.compile(r"^([ \t]*)([<>|¦!~]{1,2})([A-Za-z_][A-Za-z_0-9]*)")
+
+
+def _split_glued_keyword(masked, vocab, lang):
+    """``inti`` -> ``int i``: a keyword that lost the space after it.
+
+    Needs the leading keyword *and* a tail the snippet already uses, so
+    ``intern`` and ``integer`` are safe -- neither `ern` nor `eger` is a name
+    here -- and only fires on a spelling seen once, so a real `chars` survives.
+    """
+    keywords = sorted((w for w in lang.vocabulary if len(w) >= 2),
+                      key=len, reverse=True)
+    counts = Counter(_IDENT_RE.findall(masked))
+
+    def fix(match):
+        token = match.group()
+        if counts.get(token, 0) != 1 or vocab.get(token.lower(), 0) >= TRUSTED:
+            return token
+        lowered = token.lower()
+        for word in keywords:
+            if not lowered.startswith(word) or len(token) == len(word):
+                continue
+            tail = token[len(word):]
+            if not tail[:1].isalpha() and tail[:1] != "_":
+                continue
+            if vocab.get(tail.lower(), 0) >= TRUSTED or counts.get(tail, 0) >= 2:
+                return token[:len(word)] + " " + tail
+        return token
+
+    return _IDENT_RE.sub(fix, masked)
+
+
 def _strip_edge_junk(masked, vocab):
     """Drop the stray glyph a clipped screenshot glues onto the line's first token."""
     out = []
     for line in masked.split("\n"):
         line = _EDGE_LINE_RE.sub("", line, count=1)
+        # a run of stray glyphs jammed against a keyword, e.g. `<<int i;`
+        run = _LEADING_JUNK_RUN.match(line)
+        if run and vocab.get(run.group(3).lower(), 0) >= TRUSTED:
+            line = run.group(1) + line[run.end(2):]
         match = re.match(r"^([ \t]*)([A-Za-z_][A-Za-z_0-9]*)", line)
         if match:
             indent, token = match.groups()
@@ -155,7 +252,7 @@ def _strip_edge_junk(masked, vocab):
 # deliberately *not* consumed, so it can still act as the left-hand side of the
 # next join -- otherwise `std logic vector` would only ever get one underscore.
 _SPLIT_RE = re.compile(
-    r"([A-Za-z_][A-Za-z_0-9]*)([ \t]*_[ \t]*|[ \t]+)(?=([A-Za-z_0-9]+))")
+    r"([A-Za-z_][A-Za-z_0-9]*)(?:[ \t]+_[ \t]+|[ \t]+)(?=([A-Za-z_0-9]+))")
 
 
 def _rejoin_underscores(masked, vocab, lang):
@@ -171,18 +268,20 @@ def _rejoin_underscores(masked, vocab, lang):
         for match in _SPLIT_RE.finditer(masked):
             if match.start() < pos:
                 continue
-            left, sep, right = match.group(1), match.group(2), match.group(3)
+            left, right = match.group(1), match.group(2)
             # two bare keywords side by side is normal syntax, not a lost underscore
-            if ("_" not in sep
-                    and left.lower() in keywords and right.lower() in keywords):
+            if left.lower() in keywords and right.lower() in keywords:
                 continue
-            joined = left.rstrip("_") + "_" + right.lstrip("_")
+            # strip at most one underscore per side: the separator supplies
+            # one, but `__init__` needs the rest of its own kept
+            stem = left[:-1] if left.endswith("_") else left
+            tail = right[1:] if right.startswith("_") else right
+            joined = stem + "_" + tail
             if joined.lower() not in vocab:
                 continue
             out.append(masked[pos:match.start()])
-            out.append(left.rstrip("_") + "_")
-            # drop the separator, plus any underscores already on the right token
-            pos = match.end() + len(right) - len(right.lstrip("_"))
+            out.append(stem + "_")
+            pos = match.end() + (len(right) - len(tail))
             changed = True
         if not changed:
             break
@@ -218,6 +317,19 @@ def _repair_confusables(masked, vocab):
     return _IDENT_RE.sub(lambda m: best(m.group()), masked)
 
 
+#: Letters Tesseract substitutes for a digit at the end of an identifier.
+#: `s`/`B`/`Z` are deliberately absent: they are plausible word endings.
+DIGIT_LOOKALIKE = {"l": "1", "I": "1", "|": "1", "i": "1",
+                   "O": "0", "o": "0", "Q": "0", "D": "0"}
+
+
+def _trailing_skeleton(word):
+    """Normalise a trailing digit look-alike, so `arrayl` and `array1` agree."""
+    if len(word) > 1 and word[-1] in DIGIT_LOOKALIKE:
+        return word[:-1] + DIGIT_LOOKALIKE[word[-1]]
+    return word
+
+
 #: Glyphs Tesseract returns for `&`. `S` and `G` are identifier characters, so
 #: the misread operator fuses onto the name behind it and the whole thing comes
 #: back looking like one word: `&array1` -> `Sarray1`.
@@ -239,15 +351,19 @@ def _repair_glued_ampersand(masked, vocab, lang):
     that genuinely starts with `S` from being rewritten.
     """
     keywords = lang.vocabulary
+    # Compare on skeletons, not exact spelling: the tail may never have been
+    # read correctly anywhere, yet still show up as `arrayl` next to `array1`.
+    shapes = Counter(_trailing_skeleton(word.lower())
+                     for word in _IDENT_RE.findall(masked))
 
     def fix(match):
         prefix, name = match.group(1), match.group(2)
-        known = vocab.get(name.lower(), 0)
+        known = shapes.get(_trailing_skeleton(name.lower()), 0)
         if known <= 0:
             return match.group()
-        # `Sarray1` read as a name in its own right -- if that spelling is at
-        # least as common as `array1`, believe it rather than "correcting" it
-        if vocab.get(match.group().lower(), 0) >= known:
+        # `Sdata` read as a name in its own right -- if that spelling is more
+        # common than `data`, believe it rather than "correcting" it
+        if shapes.get(_trailing_skeleton(match.group().lower()), 0) > known:
             return match.group()
 
         before = masked[:match.start()].rstrip(" \t")
@@ -260,12 +376,6 @@ def _repair_glued_ampersand(masked, vocab, lang):
         return "&" + name
 
     return _GLUED_AMPERSAND_RE.sub(fix, masked)
-
-
-#: Letters Tesseract substitutes for a digit at the end of an identifier.
-#: `s`/`B`/`Z` are deliberately absent: they are plausible word endings.
-DIGIT_LOOKALIKE = {"l": "1", "I": "1", "|": "1", "i": "1",
-                   "O": "0", "o": "0", "Q": "0", "D": "0"}
 
 
 def _repair_digit_siblings(masked, vocab):
@@ -307,8 +417,92 @@ def _repair_digit_siblings(masked, vocab):
     return _IDENT_RE.sub(fix, masked)
 
 
+def _repair_doubled_glyph(masked, vocab):
+    """``arrayl1`` -> ``array1``: one ambiguous glyph reported twice.
+
+    Where a shape could be read either as a letter or as a digit, Tesseract
+    sometimes emits both, leaving `l1` where the source had a single `1`. The
+    give-away is that dropping the letter yields a name the snippet already has.
+    """
+    counts = Counter(_IDENT_RE.findall(masked))
+
+    def fix(match):
+        token = match.group()
+        if counts.get(token, 0) != 1 or vocab.get(token.lower(), 0) >= TRUSTED:
+            return token
+        for i in range(len(token) - 1):
+            digit = DIGIT_LOOKALIKE.get(token[i])
+            if digit and token[i + 1] == digit:
+                candidate = token[:i] + token[i + 1:]
+                if vocab.get(candidate.lower(), 0) > 0:
+                    return candidate
+        return token
+
+    return _IDENT_RE.sub(fix, masked)
+
+
+def _repair_letter_case(masked):
+    """``Z1`` -> ``z1`` when the snippet consistently spells it the other way.
+
+    Case is the whole difference here, which is a far narrower claim than a
+    general edit-distance match, so it is safe on short names where the
+    frequency repairs below refuse to act.
+    """
+    counts = Counter(_IDENT_RE.findall(masked))
+    by_fold = {}
+    for word, seen in counts.items():
+        by_fold.setdefault(word.lower(), []).append((seen, word))
+
+    def fix(match):
+        token = match.group()
+        if counts.get(token, 0) != 1:
+            return token
+        established = [w for seen, w in by_fold.get(token.lower(), ())
+                       if w != token and seen >= 2]
+        return established[0] if len(established) == 1 else token
+
+    return _IDENT_RE.sub(fix, masked)
+
+
 def _differ_by_one(a, b):
     return len(a) == len(b) and sum(x != y for x, y in zip(a, b)) == 1
+
+
+def _within_one_edit(a, b):
+    """True when one insert, delete or substitution turns `a` into `b`."""
+    if abs(len(a) - len(b)) > 1:
+        return False
+    if len(a) == len(b):
+        return _differ_by_one(a, b)
+    if len(a) > len(b):
+        a, b = b, a
+    i = 0
+    while i < len(a) and a[i] == b[i]:
+        i += 1
+    return a[i:] == b[i + 1:]
+
+
+def _repair_against_keywords(masked, vocab, lang, min_length=5):
+    """``_name__`` -> ``__name__``: snap a near-miss onto a known keyword.
+
+    The candidate set is the fixed language vocabulary rather than the snippet,
+    so a *unique* match one edit away is strong evidence. Restricted to
+    lower-case spellings so the keyword's own casing can be adopted safely, and
+    to names seen once, so a real identifier is never absorbed.
+    """
+    counts = Counter(_IDENT_RE.findall(masked))
+    keywords = [w for w in lang.vocabulary if len(w) >= min_length]
+
+    def fix(match):
+        token = match.group()
+        if (len(token) < min_length or token != token.lower()
+                or counts.get(token, 0) != 1
+                or vocab.get(token, 0) >= TRUSTED):
+            return token
+        hits = [w for w in keywords if _within_one_edit(token, w)]
+        return hits[0] if len(hits) == 1 else token
+
+    return _IDENT_RE.sub(fix, masked)
 
 
 def _repair_rare_tokens(masked, vocab, min_support=3, min_length=5):
@@ -365,7 +559,18 @@ _VHDL_OTHERS_ARROW_RE = re.compile(r"\bothers\b([ \t]*)=(?![>=])")
 
 #: Ring-shaped symbols Tesseract returns for a `0` -- `©` is the usual one in a
 #: code font, where the zero often carries a slash or dot through it.
-_ZERO_LOOKALIKE_RE = re.compile(r"[@©®Ⓞ⊙◎◯○●〇¤]")
+ZERO_LOOKALIKES = "@©®Ⓞ⊙◎◯○●〇¤"
+
+_ZERO_LOOKALIKE_RE = re.compile("[" + ZERO_LOOKALIKES + "]")
+#: Python spells decorators `@property`, so there `@` is syntax, not a misread.
+#: `@property` is a decorator, but a bare `@` is still a misread zero.
+_ZERO_LOOKALIKE_DECORATOR_RE = re.compile(
+    "[" + ZERO_LOOKALIKES.replace("@", "") + "]" + r"|@(?![A-Za-z_])")
+
+
+def _zero_lookalike_re(lang):
+    return (_ZERO_LOOKALIKE_DECORATOR_RE if lang.at_sign_is_syntax
+            else _ZERO_LOOKALIKE_RE)
 
 
 def _fix_punctuation(masked, lang):
@@ -375,8 +580,9 @@ def _fix_punctuation(masked, lang):
     comment, and both are masked out by this point, so any that remain are
     misread digits.
     """
-    masked = _ZERO_LOOKALIKE_RE.sub("0", masked)
-    masked = _TRAILING_SEMICOLON_RE.sub(r"\1;", masked)
+    masked = _zero_lookalike_re(lang).sub("0", masked)
+    if lang.uses_semicolons:
+        masked = _TRAILING_SEMICOLON_RE.sub(r"\1;", masked)
     masked = _LETTER_AS_ZERO_RE.sub(r"\g<1>0", masked)
 
     keywords = lang.vocabulary
@@ -392,7 +598,7 @@ def _fix_spacing(masked, lang):
     masked = re.sub(r"[ \t]+([;,)\]])", r"\1", masked)
     masked = re.sub(r"([(\[])[ \t]+", r"\1", masked)
 
-    spaced = SPACED_CALL.get(lang.key, set())
+    spaced = lang.spaced_before_paren
 
     def tighten(match):
         name = match.group(1)
@@ -440,6 +646,7 @@ def fix_code(text, lang="auto", reindent=True):
         return ""
 
     text = normalize_unicode(text).replace("\r\n", "\n").replace("\r", "\n")
+    text = strip_line_numbers(text)
 
     language = languages.detect(text) if lang in (None, "", "auto") else languages.get(lang)
 
@@ -447,33 +654,46 @@ def fix_code(text, lang="auto", reindent=True):
     vocab, _counts = _vocabulary(masked, language)
 
     masked = _fix_punctuation(masked, language)
+    # split before stripping: `<<inti;` only reveals its keyword once it is
+    # spelled `<<int i;`
+    masked = _split_glued_keyword(masked, vocab, language)
     masked = _strip_edge_junk(masked, vocab)
     masked = _rejoin_underscores(masked, vocab, language)
 
     # rejoining changed which identifiers exist, so re-count before voting on them
     vocab, _counts = _vocabulary(masked, language)
     if language.key == "c":
-        # only C has a unary `&`; in VHDL it is a binary concatenation operator
+        # only C has a unary `&`; in VHDL it is binary concatenation, and
+        # Python has no address-of at all
         masked = _repair_glued_ampersand(masked, vocab, language)
+        # the split revealed a name that was not in the vocabulary before
+        vocab, _counts = _vocabulary(masked, language)
     # Digit repair runs first: it reads the *spread* of misspellings as evidence,
     # and the frequency vote below would collapse that spread into one spelling.
     masked = _repair_digit_siblings(masked, vocab)
+    masked = _repair_doubled_glyph(masked, vocab)
+    masked = _repair_letter_case(masked)
     masked = _repair_confusables(masked, vocab)
     masked = _repair_rare_tokens(masked, vocab)
+    masked = _repair_against_keywords(masked, vocab, language)
     masked = _fix_spacing(masked, language)
 
     text = _unmask(masked, _fix_segments(segments, language))
 
     lines = text.split("\n")
     if reindent:
-        # Only the *leading* whitespace is rebuilt; runs of spaces inside a line
-        # are column alignment the author put there on purpose.
-        lines = language.indenter([line.strip() for line in lines])
+        if language.rebuilds_indent:
+            # Only the *leading* whitespace is rebuilt; runs of spaces inside a
+            # line are column alignment the author put there on purpose.
+            lines = language.indenter([line.strip() for line in lines])
+        else:
+            # Python: the indenter may tidy the widths but never invent them.
+            lines = language.indenter(lines)
     return "\n".join(lines).strip("\n") + "\n"
 
 
 def detect_language(text):
-    """Return the language key (``"c"`` / ``"vhdl"``) that best fits `text`."""
+    """Return the language key (``"c"``/``"vhdl"``/``"python"``) fitting `text`."""
     return languages.detect(text).key
 
 
