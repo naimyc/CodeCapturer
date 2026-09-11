@@ -218,6 +218,50 @@ def _repair_confusables(masked, vocab):
     return _IDENT_RE.sub(lambda m: best(m.group()), masked)
 
 
+#: Glyphs Tesseract returns for `&`. `S` and `G` are identifier characters, so
+#: the misread operator fuses onto the name behind it and the whole thing comes
+#: back looking like one word: `&array1` -> `Sarray1`.
+_GLUED_AMPERSAND_RE = re.compile(
+    r"(?<![A-Za-z_0-9])([SG$8]&?|&[SG$8])([A-Za-z_][A-Za-z_0-9]*)")
+
+#: Characters a unary `&` may directly follow.
+_OPERAND_START = set("(,=[{<>+-*/%|^!~?:;&")
+
+
+def _repair_glued_ampersand(masked, vocab, lang):
+    """``mul(Sarray1[0])`` -> ``mul(&array1[0])``.
+
+    Address-of is written tight against its operand, so a misread `&` does not
+    leave a separate token to repair -- it has to be split back off. Three things
+    have to hold before that happens: the tail must be a name the snippet already
+    uses, the fused form must be rarer than that name, and the whole thing must
+    sit where a unary operator is actually legal. Together those stop a variable
+    that genuinely starts with `S` from being rewritten.
+    """
+    keywords = lang.vocabulary
+
+    def fix(match):
+        prefix, name = match.group(1), match.group(2)
+        known = vocab.get(name.lower(), 0)
+        if known <= 0:
+            return match.group()
+        # `Sarray1` read as a name in its own right -- if that spelling is at
+        # least as common as `array1`, believe it rather than "correcting" it
+        if vocab.get(match.group().lower(), 0) >= known:
+            return match.group()
+
+        before = masked[:match.start()].rstrip(" \t")
+        if before and not before.endswith("\n"):
+            if before[-1] not in _OPERAND_START:
+                # `return &x;` / `sizeof &x` are operand positions too
+                word = re.search(r"[A-Za-z_][A-Za-z_0-9]*$", before)
+                if not (word and word.group().lower() in keywords):
+                    return match.group()
+        return "&" + name
+
+    return _GLUED_AMPERSAND_RE.sub(fix, masked)
+
+
 #: Letters Tesseract substitutes for a digit at the end of an identifier.
 #: `s`/`B`/`Z` are deliberately absent: they are plausible word endings.
 DIGIT_LOOKALIKE = {"l": "1", "I": "1", "|": "1", "i": "1",
@@ -408,6 +452,9 @@ def fix_code(text, lang="auto", reindent=True):
 
     # rejoining changed which identifiers exist, so re-count before voting on them
     vocab, _counts = _vocabulary(masked, language)
+    if language.key == "c":
+        # only C has a unary `&`; in VHDL it is a binary concatenation operator
+        masked = _repair_glued_ampersand(masked, vocab, language)
     # Digit repair runs first: it reads the *spread* of misspellings as evidence,
     # and the frequency vote below would collapse that spread into one spelling.
     masked = _repair_digit_siblings(masked, vocab)

@@ -393,5 +393,93 @@ class TestRobustness(unittest.TestCase):
         self.assertIn("entity", fix_code("entity foo is\nend entity;\n"))
 
 
+
+
+class TestGluedAmpersand(unittest.TestCase):
+    """`&` is written tight against its operand, so a misread fuses onto it."""
+
+    DECLS = """int array1[20];
+int array2[20];
+array1[i] = i;
+array2[i] = i;
+"""
+
+    def test_s_read_for_ampersand(self):
+        out = fix_code(self.DECLS + "i = mul(Sarray1[0]);", lang="c")
+        self.assertIn("mul(&array1[0])", out)
+        self.assertNotIn("Sarray1", out)
+
+    def test_g_read_for_ampersand(self):
+        out = fix_code(self.DECLS + "i = mul(Garray2[0]);", lang="c")
+        self.assertIn("mul(&array2[0])", out)
+
+    def test_ampersand_read_twice(self):
+        out = fix_code(self.DECLS + "add(S&array1[3]);", lang="c")
+        self.assertIn("add(&array1[3])", out)
+        self.assertNotIn("S&", out)
+
+    def test_non_identifier_lookalikes(self):
+        for prefix in ("$", "8"):
+            with self.subTest(prefix=prefix):
+                out = fix_code(self.DECLS + "mul(" + prefix + "array1[0]);",
+                               lang="c")
+                self.assertIn("mul(&array1[0])", out)
+
+    def test_after_a_keyword(self):
+        out = fix_code(self.DECLS + "return Sarray1;", lang="c")
+        self.assertIn("return &array1;", out)
+
+    def test_after_comma_and_equals(self):
+        out = fix_code(self.DECLS + "f(x, Sarray1);" + chr(10) + "p = Sarray2;",
+                       lang="c")
+        self.assertIn("f(x, &array1)", out)
+        self.assertIn("p = &array2;", out)
+
+    def test_correct_ampersand_is_untouched(self):
+        out = fix_code(self.DECLS + "add(&array1[0]);", lang="c")
+        self.assertIn("add(&array1[0])", out)
+        self.assertNotIn("&&", out)
+
+    def test_unknown_tail_is_not_split(self):
+        """`Sensor` survives: `ensor` is not a name the snippet uses."""
+        out = fix_code("int Sensor;" + chr(10) + "x = Sensor;", lang="c")
+        self.assertIn("Sensor", out)
+        self.assertNotIn("&ensor", out)
+
+    def test_real_variable_starting_with_s_is_kept(self):
+        """`Sdata` is used at least as often as `data`, so it is its own name."""
+        src = """int Sdata;
+int data;
+Sdata = 1;
+Sdata = 2;
+x = Sdata;
+"""
+        out = fix_code(src, lang="c")
+        self.assertIn("Sdata", out)
+        self.assertNotIn("&data", out)
+
+    def test_not_applied_after_an_identifier(self):
+        """`a Sb` is a spaced binary operator, not a fused unary one."""
+        src = """int b;
+int a;
+a = a;
+b = b;
+x = a Sb;
+"""
+        out = fix_code(src, lang="c")
+        self.assertNotIn("a &b", out)
+
+    def test_vhdl_is_left_alone(self):
+        """In VHDL `&` is binary concatenation; there is no unary form."""
+        src = """signal Sdata : std_logic;
+signal data : std_logic;
+x <= data;
+y <= data;
+z <= Sdata;
+"""
+        out = fix_code(src, lang="vhdl")
+        self.assertIn("Sdata", out)
+
+
 if __name__ == "__main__":
     unittest.main()
