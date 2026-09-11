@@ -38,6 +38,7 @@ one of them:
 | Extreme-channel grayscale | Luminance flattens saturated keyword colours toward the background; taking the min (or max, on a dark theme) channel keeps every highlight colour high-contrast. |
 | Margin trim + adaptive scaling | Tesseract's LSTM wants roughly 18px of ink per line. A fixed scale factor over- or under-shoots depending on the display, so the factor is derived from the measured line height. |
 | Word-box layout rebuild | `image_to_string` discards vertical gaps. Rebuilding from word coordinates keeps blank lines, and snapping the columns to the fitted monospace advance keeps alignment. |
+| Fused-operator repair | `&` and `<` are written hard against their operand, so a misread fuses into one word (`&array1` -> `Sarray1`, `#include<math.h>` -> `#includesmath.h>`) and has to be split back off. |
 | Vocabulary-driven repair | Underscores are thin and often lost (`std logic vector`). Repairs must be justified by a language keyword or by a token that already appears in the same snippet, so they can't fire on unrelated code. |
 | Line-number gutter removal | Screenshots are usually taken with line numbers showing, and OCR reads that column as code. A gutter numbers *every* line and counts up one at a time, which source never does. |
 | Per-language indenting | C indents on braces; VHDL on `entity`/`begin`/`if`/`end`. Python's indentation **is** its syntax, so it is preserved as read and never rebuilt. |

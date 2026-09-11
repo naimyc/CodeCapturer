@@ -30,6 +30,48 @@ C_KEYWORDS = {
     "int8_t", "int16_t", "int32_t", "int64_t", "size_t", "ssize_t",
 }
 
+#: Standard headers, used to recognise a mangled `#include`. The `<` sits hard
+#: against the header name, so when OCR misreads it the two fuse into one word.
+#: Split by spelling: C headers carry a `.h`, the C++ ones never do, which is
+#: what tells `<time.h>` misread as `ctime.h>` apart from a genuine `<ctime>`.
+C_HEADERS = {
+    "assert", "complex", "ctype", "errno", "fenv", "float", "inttypes",
+    "iso646", "limits", "locale", "math", "setjmp", "signal", "stdalign",
+    "stdarg", "stdatomic", "stdbool", "stddef", "stdint", "stdio", "stdlib",
+    "stdnoreturn", "string", "tgmath", "threads", "time", "uchar", "wchar",
+    "wctype",
+    # POSIX and other headers common in teaching code
+    "unistd", "fcntl", "pthread", "dirent", "termios", "sysexits", "getopt",
+    "malloc", "memory", "regex", "semaphore", "strings", "syslog", "utime",
+    "conio", "windows", "io", "direct", "process", "netdb",
+}
+
+#: Directories a standard header may sit in, and the names found inside them.
+#: Both halves are checked, so `ssys/stat.h` is not accepted as `sys/stat.h`.
+HEADER_DIRS = {"sys", "arpa", "net", "netinet", "linux", "bits", "asm",
+               "machine", "scsi", "rpc"}
+
+HEADER_DIR_NAMES = {
+    "stat", "types", "time", "wait", "socket", "mman", "ioctl", "select",
+    "resource", "utsname", "param", "file", "poll", "un", "uio", "sem", "shm",
+    "msg", "inet", "in", "if", "ip", "tcp", "udp", "ioctls", "mount", "statvfs",
+}
+
+CPP_HEADERS = {
+    "algorithm", "array", "bitset", "chrono", "deque", "exception", "fstream",
+    "functional", "initializer_list", "iomanip", "ios", "iostream", "istream",
+    "iterator", "limits", "list", "map", "memory", "mutex", "numeric",
+    "optional", "ostream", "queue", "random", "ratio", "regex", "set",
+    "sstream", "stack", "stdexcept", "streambuf", "string", "string_view",
+    "thread", "tuple", "type_traits", "typeinfo", "unordered_map",
+    "unordered_set", "utility", "valarray", "vector",
+} | {"c" + name for name in (
+    "assert", "complex", "ctype", "errno", "fenv", "float", "inttypes",
+    "limits", "locale", "math", "setjmp", "signal", "stdarg", "stdbool",
+    "stddef", "stdint", "stdio", "stdlib", "string", "time", "wchar",
+    "wctype",
+)}
+
 #: VHDL reserved words. Kept separate from the standard-library names below
 #: because a reserved word before `(` is syntax, not a call: `is (`, `not (`,
 #: `port (` must keep their space, while `rising_edge(clk)` must not.
@@ -319,6 +361,9 @@ C = Language(
     line_comment="//",
     block_comment=("/*", "*/"),
     indenter=indent_c,
+    # A repaired `#include <...>` is masked whole: the header name is a file
+    # path, not an identifier, and must not be "repaired" towards a keyword.
+    literals=(r"#[ \t]*include[ \t]*<[^>\n]*>",),
     detect=_pats(
         (r"^\s*#\s*(include|define|ifndef|pragma)\b", 6),
         (r"\bprintf\s*\(", 4),

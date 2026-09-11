@@ -12,6 +12,7 @@ OCR
 - done: VHDL and Python support + automatic language detection
 - done: strip the editor line-number gutter
 - done: restore `&` misread as `S`/`G` and fused onto its operand
+- done: restore `<` in #include misread as a letter (#includesmath.h>)
 - open: repairs stop at string literals, so a mangled format
         string like "%sd" has to be fixed by hand
 - open: recognise the language per-region when a screenshot mixes prose and code

@@ -469,17 +469,26 @@ def _differ_by_one(a, b):
 
 
 def _within_one_edit(a, b):
-    """True when one insert, delete or substitution turns `a` into `b`."""
+    """True when one *plausible OCR* edit turns `a` into `b`.
+
+    Not a general edit distance: the changed character has to be one the OCR
+    would credibly get wrong -- a confusable glyph, or a thin underscore it
+    dropped or doubled. Without that, `cstring` would collapse into `string`.
+    """
     if abs(len(a) - len(b)) > 1:
         return False
     if len(a) == len(b):
-        return _differ_by_one(a, b)
+        diff = [(x, y) for x, y in zip(a, b) if x != y]
+        if len(diff) != 1:
+            return False
+        x, y = diff[0]
+        return y in CONFUSABLE.get(x, "") or x.lower() == y.lower()
     if len(a) > len(b):
         a, b = b, a
     i = 0
     while i < len(a) and a[i] == b[i]:
         i += 1
-    return a[i:] == b[i + 1:]
+    return b[i] == "_" and a[i:] == b[i + 1:]
 
 
 def _repair_against_keywords(masked, vocab, lang, min_length=5):
@@ -553,6 +562,46 @@ _LETTER_AS_ZERO_RE = re.compile(
 
 #: A stray tick or dot the OCR hangs off the end of a keyword: ``in' std_logic``.
 _KEYWORD_TAIL_RE = re.compile(r"\b([A-Za-z_][A-Za-z_0-9]*)['.](?=[ \t]+[A-Za-z_])")
+
+#: The whole tail of an `#include` line, delimiter included.
+_C_INCLUDE_RE = re.compile(r"^([ \t]*#[ \t]*include[ \t]*)(\S.*?)[ \t]*$", re.M)
+
+
+def _names_a_header(candidate):
+    path = candidate.lower()
+    if "/" in path:
+        directory, _, name = path.rpartition("/")
+        return (directory in languages.HEADER_DIRS and name.endswith(".h")
+                and name[:-2] in languages.HEADER_DIR_NAMES)
+    if path.endswith(".h"):
+        return path[:-2] in languages.C_HEADERS
+    return path in languages.CPP_HEADERS
+
+
+def _repair_include(masked):
+    """``#includesmath.h>`` -> ``#include<math.h>``.
+
+    `<` is written hard against the header name, so a misread fuses with it and
+    there is no separate token left to fix. The closing `>` survives and says
+    the angle-bracket form was meant; whether the `<` was misread or dropped
+    outright is then settled by asking which reading names a real header.
+    """
+    def fix(match):
+        head, payload = match.group(1), match.group(2)
+        if "<" in payload or not payload.endswith(">"):
+            return match.group()          # already fine, or the quoted form
+        body = payload[:-1]
+        # `<` dropped outright is tried before `<` misread as the first letter,
+        # so a real `<cstring>` is not mistaken for a mangled `<string>`
+        for candidate in (body, body[1:]):
+            if candidate and _names_a_header(candidate):
+                return head + "<" + candidate + ">"
+        # no header we recognise, but the `>` still says a `<` belongs here;
+        # add it without guessing at the name
+        return head + "<" + body + ">" if body else match.group()
+
+    return _C_INCLUDE_RE.sub(fix, masked)
+
 
 #: ``(others = '0')`` is never valid; the association arrow lost its head.
 _VHDL_OTHERS_ARROW_RE = re.compile(r"\bothers\b([ \t]*)=(?![>=])")
@@ -649,6 +698,10 @@ def fix_code(text, lang="auto", reindent=True):
     text = strip_line_numbers(text)
 
     language = languages.detect(text) if lang in (None, "", "auto") else languages.get(lang)
+
+    if language.key == "c":
+        # before masking, so the repaired directive is the thing protected
+        text = _repair_include(text)
 
     masked, segments = _mask(text, language)
     vocab, _counts = _vocabulary(masked, language)

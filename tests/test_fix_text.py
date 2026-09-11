@@ -702,5 +702,46 @@ data = 4;
         self.assertIn("data", out)
 
 
+class TestIncludeDirective(unittest.TestCase):
+    """`<` sits hard against the header name, so a misread fuses with it."""
+
+    BODY = "int main() {" + chr(10) + "return 0;" + chr(10) + "}" + chr(10)
+
+    def first(self, line):
+        return fix_code(line + chr(10) + self.BODY, lang="c").split(chr(10))[0]
+
+    def test_angle_bracket_read_as_a_letter(self):
+        self.assertEqual(self.first("#includesmath.h>"), "#include<math.h>")
+
+    def test_angle_bracket_dropped_entirely(self):
+        self.assertEqual(self.first("#include math.h>"), "#include <math.h>")
+
+    def test_cpp_header_is_not_trimmed_to_its_c_name(self):
+        """`cstring` is a real header; it must not become `string`."""
+        self.assertEqual(self.first("#includecstring>"), "#include<cstring>")
+
+    def test_c_header_wins_when_the_c_prefix_is_the_misread_bracket(self):
+        """`ctime.h` is not a header, so the `c` here was the `<`."""
+        self.assertEqual(self.first("#includectime.h>"), "#include<time.h>")
+
+    def test_correct_includes_are_untouched(self):
+        for line in ("#include<stdio.h>", "#include <stdlib.h>",
+                     "#include<vector>", '#include "myown.h"'):
+            with self.subTest(line=line):
+                self.assertEqual(self.first(line), line)
+
+    def test_unknown_header_still_gets_its_bracket(self):
+        """No guess at the name, but the `>` proves a `<` belongs there."""
+        self.assertEqual(self.first("#includesmyown.h>"), "#include<smyown.h>")
+
+    def test_header_name_is_not_repaired_towards_a_keyword(self):
+        out = fix_code("#include<cstring>" + chr(10) + self.BODY, lang="c")
+        self.assertIn("<cstring>", out)
+
+    def test_header_path_survives(self):
+        self.assertEqual(self.first("#includessys/stat.h>"),
+                         "#include<sys/stat.h>")
+
+
 if __name__ == "__main__":
     unittest.main()
